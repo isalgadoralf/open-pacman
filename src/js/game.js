@@ -9,6 +9,8 @@ const DIRS = {
   down: { x: 0, y: 1 },
 };
 const OPPOSITE = { left: 'right', right: 'left', up: 'down', down: 'up' };
+// Prioridad fija para desempatar decisiones de movimiento.
+const DIR_PRIORITY = [ 'up', 'left', 'down', 'right' ];
 
 const PACMAN_SPEED = 0.125; // 1/8 celda/frame -> alinea cada 8 frames
 
@@ -121,33 +123,93 @@ function movePacman( game ) {
   wrapTunnel( p, width );
 }
 
-function decideGhost( game, g ) {
+// Direcciones legales desde la celda alineada actual. Se excluye el sentido
+// opuesto salvo que sea la unica salida (callejon sin salida).
+function legalDirs( game, g ) {
   const grid = game.grid;
-  const p = game.pacman;
-
-  const options = Object.keys( DIRS ).filter(
-    ( dir ) => dir !== OPPOSITE[ g.dir ] && canMove( grid, g.x, g.y, dir, 'ghost' )
+  const options = DIR_PRIORITY.filter(
+    ( dir ) => canMove( grid, g.x, g.y, dir, 'ghost' )
   );
-  // Sin salida (callejon): permitir el giro de 180.
-  const choices = options.length ? options : [ '' + OPPOSITE[ g.dir ] ];
+  const forward = options.filter( ( dir ) => dir !== OPPOSITE[ g.dir ] );
+  return forward.length ? forward : options;
+}
 
-  if ( g.kind === 'hunter' ) {
-    const px = Math.round( p.x );
-    const py = Math.round( p.y );
-    let best = choices[ 0 ];
-    let bestDist = Infinity;
-    for ( const dir of choices ) {
-      const d = DIRS[ dir ];
-      const nx = g.x + d.x;
-      const ny = g.y + d.y;
-      const dist = Math.abs( nx - px ) + Math.abs( ny - py );
-      if ( dist < bestDist ) {
-        bestDist = dist;
-        best = dir;
-      }
+// Elige la direccion legal que mas acerca (distancia Manhattan) al objetivo.
+// Los empates se resuelven con la prioridad fija up, left, down, right.
+function greedyDir( game, g, target ) {
+  const choices = legalDirs( game, g );
+  let best = choices[ 0 ];
+  let bestDist = Infinity;
+  for ( const dir of choices ) {
+    const d = DIRS[ dir ];
+    const nx = g.x + d.x;
+    const ny = g.y + d.y;
+    const dist = Math.abs( nx - target.x ) + Math.abs( ny - target.y );
+    if ( dist < bestDist ) {
+      bestDist = dist;
+      best = dir;
     }
-    g.dir = best;
+  }
+  return best;
+}
+
+// Celda de Pacman redondeada y recortada a los limites del laberinto.
+function pacmanCell( game ) {
+  const width = game.grid[ 0 ].length;
+  const height = game.grid.length;
+  return {
+    x: Math.min( width - 1, Math.max( 0, Math.round( game.pacman.x ) ) ),
+    y: Math.min( height - 1, Math.max( 0, Math.round( game.pacman.y ) ) ),
+  };
+}
+
+// BFS sobre la cuadricula. Devuelve la primera direccion del camino mas corto
+// desde 'from' hasta 'to', sin usar 'forbiddenDir' en el primer paso.
+// Respeta paredes y puerta (los fantasmas pueden cruzar la puerta) y envuelve
+// el tunel de la fila 14. Devuelve null si no hay ruta.
+function shortestPathDir( grid, from, to, forbiddenDir ) {
+  const width = grid[ 0 ].length;
+  const queue = [ { x: from.x, y: from.y, first: null } ];
+  const visited = new Set( [ from.x + ',' + from.y ] );
+
+  while ( queue.length ) {
+    const node = queue.shift();
+    for ( const dir of DIR_PRIORITY ) {
+      if ( node.first === null && dir === forbiddenDir ) continue;
+      const d = DIRS[ dir ];
+      let nx = node.x + d.x;
+      let ny = node.y + d.y;
+      // Tunel: envolver la x en la fila del tunel.
+      if ( ny === TUNNEL_ROW ) {
+        if ( nx < 0 ) nx += width;
+        else if ( nx >= width ) nx -= width;
+      }
+      if ( isWall( grid, nx, ny, 'ghost' ) ) continue;
+      const key = nx + ',' + ny;
+      if ( visited.has( key ) ) continue;
+      visited.add( key );
+      const first = node.first || dir;
+      if ( nx === to.x && ny === to.y ) return first;
+      queue.push( { x: nx, y: ny, first } );
+    }
+  }
+  return null;
+}
+
+function decideGhost( game, g ) {
+  const target = pacmanCell( game );
+
+  // Proteccion temporal: el chaser ya persigue con BFS; los demas roles
+  // siguen al azar hasta implementarse en los pasos 6-8.
+  if ( g.kind === 'chaser' ) {
+    const from = { x: g.x, y: g.y };
+    let dir = shortestPathDir( game.grid, from, target, OPPOSITE[ g.dir ] );
+    // Sin ruta respetando "no revertir": reintentar permitiendo el giro.
+    if ( !dir ) dir = shortestPathDir( game.grid, from, target, null );
+    // Ultimo recurso: decision voraz.
+    g.dir = dir || greedyDir( game, g, target );
   } else {
+    const choices = legalDirs( game, g );
     g.dir = choices[ Math.floor( Math.random() * choices.length ) ];
   }
 }
@@ -185,10 +247,12 @@ function resetPositions( game ) {
   p.y = PACMAN_START.y;
   p.dir = 'left';
   p.nextDir = null;
+  game.elapsedFrames = 0;
   game.ghosts.forEach( ( g, i ) => {
     g.x = GHOST_STARTS[ i ].x;
     g.y = GHOST_STARTS[ i ].y;
     g.dir = 'up';
+    g.released = false;
   } );
 }
 
