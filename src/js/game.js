@@ -36,6 +36,7 @@ function createGame() {
     score: 0,
     lives: 3,
     dotsRemaining: dots,
+    elapsedFrames: 0,
     grid,
     pacman: {
       x: PACMAN_START.x,
@@ -51,6 +52,7 @@ function createGame() {
       speed: GHOST_TYPES[ g.kind ].speed,
       kind: g.kind,
       releaseDelay: GHOST_TYPES[ g.kind ].releaseDelay,
+      released: false,
     } ) ),
   };
 }
@@ -154,10 +156,20 @@ function moveGhost( game, g ) {
   const grid = game.grid;
   const width = grid[ 0 ].length;
 
+  // Salida escalonada: el fantasma espera en el pen hasta su turno.
+  if ( !g.released ) {
+    if ( game.elapsedFrames < g.releaseDelay ) return;
+    g.released = true;
+  }
+
+  // Dentro del pen (zona de la puerta) solo se sube, hasta salir a y <= 11.
+  const inPen = g.y >= 12 && g.y <= 15 && g.x >= 11 && g.x <= 16;
+
   if ( aligned( g.x ) && aligned( g.y ) ) {
     g.x = Math.round( g.x );
     g.y = Math.round( g.y );
-    decideGhost( game, g );
+    if ( inPen ) g.dir = 'up';
+    else decideGhost( game, g );
     if ( !canMove( grid, g.x, g.y, g.dir, 'ghost' ) ) return;
   }
 
@@ -185,6 +197,7 @@ function collides( a, b ) {
 }
 
 function update( game ) {
+  if ( game.state === 'playing' ) game.elapsedFrames++;
   movePacman( game );
   game.ghosts.forEach( ( g ) => moveGhost( game, g ) );
 
