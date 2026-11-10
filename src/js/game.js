@@ -199,8 +199,7 @@ function shortestPathDir( grid, from, to, forbiddenDir ) {
 function decideGhost( game, g ) {
   const target = pacmanCell( game );
 
-  // Proteccion temporal: el chaser ya persigue con BFS; los demas roles
-  // siguen al azar hasta implementarse en los pasos 6-8.
+  // El chaser usa BFS; el resto de roles elige objetivos y usa greedyDir.
   if ( g.kind === 'chaser' ) {
     const from = { x: g.x, y: g.y };
     let dir = shortestPathDir( game.grid, from, target, OPPOSITE[ g.dir ] );
@@ -208,9 +207,30 @@ function decideGhost( game, g ) {
     if ( !dir ) dir = shortestPathDir( game.grid, from, target, null );
     // Ultimo recurso: decision voraz.
     g.dir = dir || greedyDir( game, g, target );
+  } else if ( g.kind === 'ambusher' ) {
+    // Apunta 4 celdas por delante de Pacman, sin recortar al tablero.
+    const pd = DIRS[ game.pacman.dir ] || { x: 0, y: 0 };
+    const ambush = { x: target.x + 4 * pd.x, y: target.y + 4 * pd.y };
+    g.dir = greedyDir( game, g, ambush );
+  } else if ( g.kind === 'flanker' ) {
+    // Objetivo: 2 * (Pacman + 2 * direccion) - celda del chaser.
+    const pd = DIRS[ game.pacman.dir ] || { x: 0, y: 0 };
+    const chaser = game.ghosts.find( ( x ) => x.kind === 'chaser' );
+    const cx = chaser ? Math.round( chaser.x ) : target.x;
+    const cy = chaser ? Math.round( chaser.y ) : target.y;
+    const flank = {
+      x: 2 * ( target.x + 2 * pd.x ) - cx,
+      y: 2 * ( target.y + 2 * pd.y ) - cy,
+    };
+    g.dir = greedyDir( game, g, flank );
   } else {
-    const choices = legalDirs( game, g );
-    g.dir = choices[ Math.floor( Math.random() * choices.length ) ];
+    // shy: persigue si esta lejos; si Pacman se acerca (<= 8 celdas), huye a
+    // la esquina inferior izquierda.
+    const gx = Math.round( g.x );
+    const gy = Math.round( g.y );
+    const dist = Math.abs( gx - target.x ) + Math.abs( gy - target.y );
+    const goal = dist > 8 ? target : { x: 1, y: 29 };
+    g.dir = greedyDir( game, g, goal );
   }
 }
 
