@@ -51,9 +51,12 @@ const MAZE = MAZE_STR.map( ( row ) => row.split( '' ).map( parseTile ) );
 
 const TUNNEL_ROW = 14;
 const PACMAN_START = { x: 13, y: 23 };
+// Cuatro roles fijos, con posiciones de inicio dentro del pen.
 const GHOST_STARTS = [
-  { x: 13, y: 14, kind: 'hunter' }, // dentro de la pen
-  { x: 14, y: 14, kind: 'random' }, // dentro de la pen
+  { x: 13, y: 13, kind: 'chaser' },   // rojo: persigue por la ruta mas corta
+  { x: 14, y: 13, kind: 'ambusher' }, // rosa: apunta por delante de Pacman
+  { x: 13, y: 14, kind: 'flanker' },  // cian: corta la diagonal
+  { x: 14, y: 14, kind: 'shy' },      // naranja: se aleja si esta cerca
 ];
 
 window.MAZE = MAZE;
